@@ -1,13 +1,15 @@
-import fire
 import json
 from pathlib import Path
+
+import fire
 from eval.utils_videomme import VideoMMEDataset
 from tqdm import tqdm
+
 
 def main(
     model_type="vamba",
     model_name_or_path="TIGER-Lab/Vamba-Qwen2-VL-7B",
-    data_dir="/path/to/dataset/videomme",
+    data_dir="/home/wren93/genads_models/datasets/video_benchmarks/Video-MME",
     frames_dir=None,
     num_frames=512,
     img_shortest_edge=256,
@@ -29,25 +31,26 @@ def main(
 
     if model_type == "vamba":
         from tools.vamba_chat import Vamba
+
         model = Vamba(model_name_or_path)
     else:
         raise ValueError(f"Invalid model type: {model_type}")
 
     sample_config = {
-        'num_frames': num_frames,
-        'sample_type': 'uniform',
-        'model_patch_size': model.patch_size,
-        'img_shortest_edge': img_shortest_edge,
-        'img_longest_edge': img_longest_edge,
-        'max_img_seq_len': max_img_seq_len,
-        'do_resize': do_resize,
+        "num_frames": num_frames,
+        "sample_type": "uniform",
+        "model_patch_size": model.patch_size,
+        "img_shortest_edge": img_shortest_edge,
+        "img_longest_edge": img_longest_edge,
+        "max_img_seq_len": max_img_seq_len,
+        "do_resize": do_resize,
     }
 
     dataset = VideoMMEDataset(
         data_dir,
         frames_path=frames_dir,
         sample_config=sample_config,
-        use_subtitle=use_subtitle
+        use_subtitle=use_subtitle,
     )
 
     generation_config = {
@@ -61,43 +64,41 @@ def main(
     core_data = {}
 
     model_save_path = "/".join(model_name_or_path.split("/")[-2:])
-    results_file = Path(results_dir) / f"{num_frames}frames" / f"{model_save_path}.jsonl"
+    results_file = (
+        Path(results_dir) / f"{num_frames}frames" / f"{model_save_path}.jsonl"
+    )
     results_file.parent.mkdir(parents=True, exist_ok=True)
-    
+
     if results_file.exists() and not overwrite:
         with open(results_file, "r") as rf:
             try:
                 core_data = json.load(rf)
             except json.JSONDecodeError:
                 core_data = {}
-    
+
     for i in tqdm(range(len(core_data), len(dataset))):
         data = dataset[i]
-        video_path = data['video_path']
+        video_path = data["video_path"]
         if video_path in core_data:
             continue
 
         images = data["video"]
 
         questions = data["questions"]
-        video_answers = []   
+        video_answers = []
 
         for question in questions:
             text = question["text"]
             messages = [
-                {
-                    "type": "pil_video",
-                    "content": images
-                },
+                {"type": "pil_video", "content": images},
                 {
                     "type": "text",
                     "content": f"<video> {text}",
-                }
+                },
             ]
             response = model(messages, generation_config)
             response = response.lower()
 
-        
             if "the answer is" in response:
                 response = response.split("the answer is")[-1].strip()
             elif "answer:" in response:
@@ -108,18 +109,23 @@ def main(
                 if char.isalpha():
                     response = char
                     break
-            question["correct"] = response[0] == question["answer"] or response[0] == question["answer"].lower() if len(response) > 0 else False
+            question["correct"] = (
+                response[0] == question["answer"]
+                or response[0] == question["answer"].lower()
+                if len(response) > 0
+                else False
+            )
 
             video_answers.append(question)
-        
+
         core_data[video_path] = video_answers
-    
+
         with open(results_file, "w") as wf:
             json.dump(core_data, wf, indent=4)
-        
+
     all_questions = []
     for answers in core_data.values():
-        all_questions.extend(answers) 
+        all_questions.extend(answers)
     # print accuracy
     task_type_dict = {}
     for item in all_questions:
@@ -131,7 +137,9 @@ def main(
             task_type_dict[task_type]["correct"] += 1
     for task_type in task_type_dict:
         print(f"Task Type: {task_type}")
-        print(f"Accuracy: {task_type_dict[task_type]['correct']} / {task_type_dict[task_type]['total']:.4f} = {task_type_dict[task_type]['correct'] / task_type_dict[task_type]['total']:.4f}")
+        print(
+            f"Accuracy: {task_type_dict[task_type]['correct']} / {task_type_dict[task_type]['total']:.4f} = {task_type_dict[task_type]['correct'] / task_type_dict[task_type]['total']:.4f}"
+        )
         print()
     duration_dict = {}
     for item in all_questions:
@@ -143,12 +151,20 @@ def main(
             duration_dict[duration]["correct"] += 1
     for duration in duration_dict:
         print(f"Duration: {duration}")
-        print(f"Accuracy: {duration_dict[duration]['correct']} / {duration_dict[duration]['total']:.4f} = {duration_dict[duration]['correct'] / duration_dict[duration]['total']:.4f}")
+        print(
+            f"Accuracy: {duration_dict[duration]['correct']} / {duration_dict[duration]['total']:.4f} = {duration_dict[duration]['correct'] / duration_dict[duration]['total']:.4f}"
+        )
         print()
-    all_correct = sum([task_type_dict[task_type]["correct"] for task_type in task_type_dict])
-    all_total = sum([task_type_dict[task_type]["total"] for task_type in task_type_dict])
-    print(f"Overall Accuracy: {all_correct} / {all_total:.4f} = {all_correct / all_total:.4f}")
-        
-        
+    all_correct = sum(
+        [task_type_dict[task_type]["correct"] for task_type in task_type_dict]
+    )
+    all_total = sum(
+        [task_type_dict[task_type]["total"] for task_type in task_type_dict]
+    )
+    print(
+        f"Overall Accuracy: {all_correct} / {all_total:.4f} = {all_correct / all_total:.4f}"
+    )
+
+
 if __name__ == "__main__":
     fire.Fire(main)
