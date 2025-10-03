@@ -1,0 +1,4 @@
+fire
+pycocoevalcap==1.2
+pycocotools==2.0.7
+capture-metric==0.1.13
